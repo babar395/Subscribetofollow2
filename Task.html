@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tasks — SubscribeToFollow</title>
+<link rel="stylesheet" href="assets/style.css" />
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
+import { getAuth, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
+import { getDatabase, ref, get, onValue, update } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-database.js";
+import cfgModule from './assets/config-module.js';
+const cfg = cfgModule.FB_CONFIG;
+const app = initializeApp(cfg.firebaseConfig);
+const auth = getAuth(app);
+const db = getDatabase(app);
+
+const CATEGORY_POINTS = { youtube:15, tiktok:8, instagram:8, facebook:8, whatsapp:8, telegram:8, threads:8 };
+
+let currentUser = null;
+let completedCount = 0;
+
+function $(id){ return document.getElementById(id); }
+
+async function loadTasks(){
+  const snap = await get(ref(db, 'tasks'));
+  const list = $('tasklist');
+  list.innerHTML = '';
+  if(!snap.exists()){
+    list.innerHTML = '<p class="small-muted">No tasks available yet. Admin se tasks add karwayein.</p>';
+    return;
+  }
+  const tasks = snap.val();
+  // iterate categories and tasks
+  for(const cat of Object.keys(tasks || {})){
+    const node = tasks[cat];
+    for(const id of Object.keys(node || {})){
+      const t = node[id];
+      if(!t || t.active===false) continue;
+      // check if user already completed
+      const doneSnap = await get(ref(db, `users/${currentUser.uid}/tasksDone/${id}`));
+      if(doneSnap.exists()) continue; // skip
+      const div = document.createElement('div');
+      div.className = 'task';
+      const points = t.points || CATEGORY_POINTS[cat] || 8;
+      div.innerHTML = `<div style="font-weight:700">${t.title}</div>
+        <a class="link" href="${t.link}" target="_blank">Open task</a>
+        <div style="margin-top:8px" class="small">Reward: +${points} pts</div>
+        <div style="margin-top:8px"><button class="btn doTask" data-id="${id}" data-cat="${cat}">I did it</button></div>`;
+      list.appendChild(div);
+    }
+  }
+}
+
+window.addEventListener('load', ()=>{
+  $('logout').addEventListener('click', ()=> signOut(auth));
+  $('backBlog').addEventListener('click', ()=> window.location.href = cfg.blogUrl);
+
+  onAuthStateChanged(auth, async user=>{
+    if(!user){
+      window.location.href = 'auth.html';
+      return;
+    }
+    currentUser = user;
+    $('who').textContent = user.displayName || user.email || 'User';
+
+    // listen to completedCount & points
+    onValue(ref(db, `users/${user.uid}/completedCount`), snap=>{
+      completedCount = snap.val() || 0;
+      $('count').textContent = completedCount;
+    });
+    onValue(ref(db, `users/${user.uid}/points`), snap=>{
+      $('points').textContent = snap.val() || 0;
+    });
+
+    // load tasks after user known
+    loadTasks();
+  });
+
+  // handle task completion
+  document.getElementById('tasklist').addEventListener('click', async (e)=>{
+    const btn = e.target.closest('button');
+    if(!btn) return;
+    const id = btn.getAttribute('data-id');
+    const cat = btn.getAttribute('data-cat');
+    if(!currentUser) return alert('Login required');
+    const doneSnap = await get(ref(db, `users/${currentUser.uid}/tasksDone/${id}`));
+    if(doneSnap.exists()){ alert('Already completed this task.'); return; }
+    // mark done and add points & increment completedCount
+    const pts = (await get(ref(db, `tasks/${cat}/${id}/points`))).val() || CATEGORY_POINTS[cat] || 8;
+    const userPointsSnap = await get(ref(db, `users/${currentUser.uid}/points`));
+    const curPts = userPointsSnap.exists() ? userPointsSnap.val() : 0;
+    const userCcSnap = await get(ref(db, `users/${currentUser.uid}/completedCount`));
+    const curCc = userCcSnap.exists() ? userCcSnap.val() : 0;
+
+    const updates = {};
+    updates[`users/${currentUser.uid}/tasksDone/${id}`] = true;
+    updates[`users/${currentUser.uid}/points`] = curPts + pts;
+    updates[`users/${currentUser.uid}/completedCount`] = curCc + 1;
+    await update(ref(db), updates);
+    alert('Task marked done! +' + pts + ' points');
+
+    // reload tasks UI
+    loadTasks();
+
+    // if reached 10 -> redirect to blog for ads
+    if((curCc + 1) % 10 === 0){
+      setTimeout(()=>{ window.location.href = cfg.blogUrl; }, 700);
+    }
+  });
+});
+</script>
+</head>
+<body>
+  <div class="container">
+    <div class="top">
+      <div class="brand">SubscribeToFollow</div>
+      <div>
+        <button id="logout" class="btn btn.ghost">Logout</button>
+        <a class="btn" id="backBlog" href="#">Go to Blog</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><strong id="who">User</strong><div class="small">Completed: <span id="count">0</span></div></div>
+        <div class="stat">Points: <span id="points">--</span></div>
+      </div>
+      <div class="notice small">Har task complete karne par points automatic add honge. 10 completions par aap blog par redirect ho jaogey.</div>
+    </div>
+
+    <div id="tasklist" class="grid"></div>
+
+    <footer>© SubscribeToFollow</footer>
+    <a class="fab" href="mailto:babarbhutta395@gmail.com">?</a>
+  </div>
+</body>
+</html>
