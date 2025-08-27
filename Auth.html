@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign In — SubscribeToFollow</title>
+<link rel="stylesheet" href="assets/style.css" />
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
+import { getAuth, signInWithPopup, GoogleAuthProvider, setPersistence, browserLocalPersistence, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
+import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-database.js";
+import cfgModule from './assets/config-module.js';
+const cfg = cfgModule.FB_CONFIG;
+const app = initializeApp(cfg.firebaseConfig);
+const auth = getAuth(app);
+setPersistence(auth, browserLocalPersistence);
+const db = getDatabase(app);
+
+window.addEventListener('load', ()=>{
+  const btn = document.getElementById('googleLogin');
+  btn.addEventListener('click', async ()=>{
+    try{
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    }catch(e){ alert('Login failed'); }
+  });
+  onAuthStateChanged(auth, async user=>{
+    if(user){
+      const uref = ref(db, 'users/' + user.uid);
+      const snap = await get(uref);
+      if(!snap.exists()){
+        await set(uref, { email:user.email||'', name:user.displayName||'', points:0, completedCount:0, blocked:false, createdAt: Date.now() });
+      }
+      // Redirect to tasks page
+      window.location.href = 'tasks.html';
+    }
+  });
+});
+</script>
+</head>
+<body>
+  <div class="container">
+    <div class="top"><div class="brand">SubscribeToFollow</div><a class="btn" href="index.html">Home</a></div>
+    <div class="card">
+      <h2>Sign in / Sign up</h2>
+      <p class="small-muted">Sign in with Google. Session saved so when you return from blog you won't need to login again.</p>
+      <div style="margin-top:12px"><button id="googleLogin" class="btn">Sign in with Google</button></div>
+    </div>
+    <div class="card small-muted" style="margin-top:12px">
+      <p>Buy points via WhatsApp: <a href="https://wa.me/923136140434">03136140434</a></p>
+    </div>
+    <footer class="small-muted" style="margin-top:20px;text-align:center">© SubscribeToFollow</footer>
+  </div>
+</body>
+</html>
